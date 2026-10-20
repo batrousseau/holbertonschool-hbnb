@@ -1,0 +1,173 @@
+#!/bin/bash
+
+BASE_URL="http://127.0.0.1:5000/api/v1"
+BODY_FILE="/tmp/hbnb_place_response.txt"
+
+show_response() {
+    local http_code
+    http_code=$(curl -s -o "$BODY_FILE" -w "%{http_code}" "$@")
+    echo "Actual status: $http_code"
+    echo "Actual body:"
+    cat "$BODY_FILE"
+    echo
+    echo
+    LAST_HTTP_CODE="$http_code"
+}
+
+echo "=================================================="
+echo "1. CREATE OWNER"
+echo "=================================================="
+echo "Expected status: 201"
+echo 'Expected body: {"id":"<generated_id>","first_name":"Curl","last_name":"Owner","email":"curl.owner.place@test.com"}'
+echo
+show_response -X POST "$BASE_URL/users/" -H "Content-Type: application/json" -d '{"first_name":"Curl","last_name":"Owner","email":"curl.owner.place@test.com"}'
+OWNER_ID=$(python3 -c 'import json
+try:
+    print(json.load(open("/tmp/hbnb_place_response.txt")).get("id", ""))
+except Exception:
+    print("")')
+echo "Extracted OWNER_ID: $OWNER_ID"
+echo
+
+echo "=================================================="
+echo "2. CREATE AMENITY"
+echo "=================================================="
+echo "Expected status: 201"
+echo 'Expected body: {"id":"<generated_id>","name":"Curl Wifi"}'
+echo
+show_response -X POST "$BASE_URL/amenities/" -H "Content-Type: application/json" -d '{"name":"Curl Wifi"}'
+AMENITY_ID=$(python3 -c 'import json
+try:
+    print(json.load(open("/tmp/hbnb_place_response.txt")).get("id", ""))
+except Exception:
+    print("")')
+echo "Extracted AMENITY_ID: $AMENITY_ID"
+echo
+
+echo "=================================================="
+echo "3. CREATE PLACE"
+echo "=================================================="
+echo "Expected status: 201"
+echo "Expected body:"
+echo '{
+  "id": "<generated_id>",
+  "title": "Curl Place",
+  "description": "Created with curl",
+  "price": 100.0,
+  "latitude": 44.8378,
+  "longitude": -0.5792,
+  "owner_id": "<OWNER_ID>"
+}'
+echo
+show_response -X POST "$BASE_URL/places/" \
+    -H "Content-Type: application/json" \
+    -d "{\"title\":\"Curl Place\",\"description\":\"Created with curl\",\"price\":100.0,\"latitude\":44.8378,\"longitude\":-0.5792,\"owner_id\":\"$OWNER_ID\",\"amenities\":[\"$AMENITY_ID\"]}"
+
+PLACE_ID=$(python3 -c 'import json
+try:
+    print(json.load(open("/tmp/hbnb_place_response.txt")).get("id", ""))
+except Exception:
+    print("")')
+echo "Extracted PLACE_ID: $PLACE_ID"
+echo
+
+if [ -z "$PLACE_ID" ]; then
+    echo "ERROR: PLACE_ID could not be extracted."
+    echo "Stopping because the following tests depend on a created place."
+    exit 1
+fi
+
+echo "=================================================="
+echo "4. GET PLACE BY ID"
+echo "=================================================="
+echo "Expected status: 200"
+echo "Expected body:"
+echo "{
+  \"id\": \"$PLACE_ID\",
+  \"title\": \"Curl Place\",
+  \"description\": \"Created with curl\",
+  \"price\": 100.0,
+  \"latitude\": 44.8378,
+  \"longitude\": -0.5792,
+  \"owner_id\": \"$OWNER_ID\"
+}"
+echo
+show_response -X GET "$BASE_URL/places/$PLACE_ID"
+
+echo "=================================================="
+echo "5. GET ALL PLACES"
+echo "=================================================="
+echo "Expected status: 200"
+echo "Expected result: response must contain PLACE_ID = $PLACE_ID"
+echo "Expected place data should contain at least:"
+echo '{
+  "title": "Curl Place",
+  "description": "Created with curl",
+  "price": 100.0
+}'
+echo
+show_response -X GET "$BASE_URL/places/"
+
+echo "=================================================="
+echo "6. UPDATE PLACE"
+echo "=================================================="
+echo "Expected status: 200"
+echo "Expected body:"
+echo "{
+  \"message\": \"Successfully Updated\",
+  \"id\": \"$PLACE_ID\",
+  \"title\": \"Updated Curl Place\"
+}"
+echo
+show_response -X PUT "$BASE_URL/places/$PLACE_ID" \
+    -H "Content-Type: application/json" \
+    -d "{\"title\":\"Updated Curl Place\",\"description\":\"Updated with curl\",\"price\":200.0,\"latitude\":45.0,\"longitude\":-0.6,\"owner_id\":\"$OWNER_ID\",\"amenities\":[\"$AMENITY_ID\"]}"
+
+echo "=================================================="
+echo "7. GET PLACE AFTER UPDATE"
+echo "=================================================="
+echo "Expected status: 200"
+echo "Expected body:"
+echo "{
+  \"id\": \"$PLACE_ID\",
+  \"title\": \"Updated Curl Place\",
+  \"description\": \"Updated with curl\",
+  \"price\": 200.0,
+  \"latitude\": 45.0,
+  \"longitude\": -0.6,
+  \"owner_id\": \"$OWNER_ID\"
+}"
+echo
+show_response -X GET "$BASE_URL/places/$PLACE_ID"
+
+echo "=================================================="
+echo "8. GET UNKNOWN PLACE"
+echo "=================================================="
+echo "Expected status: 404"
+echo 'Expected body: {"error":"Place not found"}'
+echo
+show_response -X GET "$BASE_URL/places/00000000-0000-0000-0000-000000000000"
+
+echo "=================================================="
+echo "9. UPDATE UNKNOWN PLACE"
+echo "=================================================="
+echo "Expected status: 404"
+echo 'Expected body: {"error":"Place not found"}'
+echo
+show_response -X PUT "$BASE_URL/places/00000000-0000-0000-0000-000000000000" \
+    -H "Content-Type: application/json" \
+    -d "{\"title\":\"Unknown Place\",\"description\":\"Should fail\",\"price\":100.0,\"latitude\":44.0,\"longitude\":-0.5,\"owner_id\":\"$OWNER_ID\",\"amenities\":[\"$AMENITY_ID\"]}"
+
+echo "=================================================="
+echo "10. CREATE PLACE WITHOUT DESCRIPTION"
+echo "=================================================="
+echo "Expected status: 201"
+echo "Expected behavior: description should become an empty string if your API handles optional description that way."
+echo
+show_response -X POST "$BASE_URL/places/" \
+    -H "Content-Type: application/json" \
+    -d "{\"title\":\"Curl Place Without Description\",\"price\":80.0,\"latitude\":44.8,\"longitude\":-0.5,\"owner_id\":\"$OWNER_ID\",\"amenities\":[\"$AMENITY_ID\"]}"
+
+echo "=================================================="
+echo "END OF PLACE API TESTS"
+echo "=================================================="
