@@ -65,5 +65,5 @@ class ReviewResource(Resource):
         review_to_delete = facade.get_review(review_id)
         if not review_to_delete:
             return {'error' : 'Cannot delete a non existing review'}, 404
-        facade.review_repo.delete(review_id)
+        facade.delete_review(review_id)
         return {'message' : 'Successfully deleted review'}, 200
