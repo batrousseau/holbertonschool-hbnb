@@ -6,8 +6,12 @@ from app.models.amenity import Amenity
 from app.models.place import Place
 from app.models.review import Review
 
+# The facade coordinates models and repositories on behalf of API routes.
+# It does not construct HTTP responses or define JSON contracts.
 class HBnBFacade:
     def __init__(self):
+        # Separate repositories hold users, places, reviews and amenities.
+        # They all use the same in-memory implementation.
         self.user_repo = InMemoryRepository()
         self.place_repo = InMemoryRepository()
         self.review_repo = InMemoryRepository()
@@ -24,10 +28,17 @@ class HBnBFacade:
         return place
 
     def create_review(self, review_data):
+        # The ** operator expands JSON dictionary keys into constructor arguments.
+        # Model validation runs before the new Review is stored.
         review = Review(**review_data)
         self.review_repo.add(review)
         place = self.get_place(review.place_id)
+        # A Review pointing to a Place does not automatically update Place.reviews.
+        # The facade maintains that reverse relationship explicitly.
         place.add_review(review.id)
+        # vars(place) returns the instance __dict__, not an independent copy.
+        # The in-memory repository already holds this same Place by reference.
+        # This additional update invokes the Place update/validation methods.
         self.place_repo.update(place.id, vars(place))
         return review
 
@@ -59,6 +70,8 @@ class HBnBFacade:
         return self.review_repo.get(review_id)
 
     def get_review_by_place(self, place_id):
+        # get_by_attribute() uses next(), so this returns ONE Review or None,
+        # even when multiple reviews share the same place_id.
         return self.review_repo.get_by_attribute('place_id', place_id)
 
 
@@ -87,6 +100,8 @@ class HBnBFacade:
         return self.place_repo.get(place_id)
 
     def update_review(self, review_id, review_data):
+        # The Review object is updated first. If its place_id changes, this code
+        # does not reconcile the old and new Places' reviews lists.
         self.review_repo.update(review_id, review_data)
         review = self.get_review(review_id)
         place = self.get_place(review.place_id)
@@ -97,5 +112,7 @@ class HBnBFacade:
     def delete_review(self, review_id):
         review = self.get_review(review_id)
         place = self.get_place(review.place_id)
+        # Remove the ID from the Place before deleting the Review object.
+        # Otherwise the Place GET contract could follow a dangling review ID.
         place.remove_review(review_id)
         self.review_repo.delete(review_id)

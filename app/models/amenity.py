@@ -4,6 +4,7 @@ from app.models.place import Place
 from app.models.user import BaseModel, User
 
 
+# Amenities are separate entities; Place.amenities stores their UUIDs.
 class Amenity(BaseModel):
     def __init__(self, name):
         super().__init__()
@@ -11,6 +12,7 @@ class Amenity(BaseModel):
         self.name = name
 
     def update(self, updated_data):
+        # Validate the proposed name before BaseModel.update assigns it.
         new_name = updated_data['name']
         self.validate_amenity_credentials(new_name)
         cleaned_data: dict = {'name' : new_name}

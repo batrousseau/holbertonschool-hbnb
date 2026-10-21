@@ -3,6 +3,8 @@
 from app.models.user import User, BaseModel
 
 
+# A Place stores scalar properties plus IDs of related reviews/amenities.
+# Its detailed API representation resolves these IDs into objects.
 class Place(BaseModel):
     def __init__(self, title, description, price, latitude, longitude, owner_id, amenities=None, reviews=None):
         super().__init__()
@@ -12,6 +14,8 @@ class Place(BaseModel):
         self.price = price
         self.latitude = latitude
         self.longitude = longitude
+        # Copy caller-provided collections; mutable lists must not be shared
+        # between Place instances or with their original input dictionaries.
         self.reviews = list(reviews) if reviews is not None else []
         self.amenities = list(amenities) if amenities is not None else []
         self.owner_id = owner_id
@@ -23,6 +27,8 @@ class Place(BaseModel):
             raise ValueError("Too long ! Place must be 100 characters max")
         if type(description) is not str:
             raise TypeError("The description of the place must be a string")
+        # Integer input is accepted for numeric fields, but this local cast does
+        # not change the original argument assigned to the instance.
         if type(price) is int:
             price = float(price)
         elif type(price) is not float:
@@ -47,6 +53,7 @@ class Place(BaseModel):
             raise ValueError("The owner must be an id")
 
     def update(self, updated_data):
+        # The current update requires all core Place fields, not a partial PATCH.
         new_title = updated_data['title']
         new_description = updated_data['description']
         new_price = updated_data['price']
@@ -54,6 +61,8 @@ class Place(BaseModel):
         new_longitude = updated_data['longitude']
         new_owner_id = updated_data['owner_id']
         self.validate_places_credentials(new_title, new_description, new_price, new_latitude, new_longitude, new_owner_id)
+        # Associations supplied in an update are appended if missing, not replaced.
+        # An empty list does not erase existing amenity/review associations.
         if updated_data.get('amenities'):
             for amenity_id in updated_data['amenities']:
                 if amenity_id not in self.amenities:
@@ -62,16 +71,21 @@ class Place(BaseModel):
             for review_id in updated_data['reviews']:
                 if review_id not in self.reviews:
                     self.add_review(review_id)
+        # Pass scalar attributes to BaseModel.update; relationship changes were
+        # already handled by add_review/add_amenity above.
         cleaned_data: dict = {'title' : new_title, 'description' : new_description, 'price' : new_price, 'latitude' : new_latitude, 'longitude' : new_longitude, 'owner_id' : new_owner_id}
         super().update(cleaned_data)
 
 
+    # Only an ID is stored here. Creating the Review itself is the facade's job.
     def add_review(self, review_id):
         if not '-' in review_id:
             raise ValueError("the review must be a legit uuid")
         self.reviews.append(review_id)
         super().save()
 
+    # Fail if the ID is not linked, so a broken association is not silently
+    # ignored. Unlike add_review(), this method does not currently call save().
     def remove_review(self, review_id):
         if not '-' in review_id:
             raise ValueError("the review must be a legit uuid")
@@ -79,6 +93,7 @@ class Place(BaseModel):
             raise ValueError("Can't delete the review stored in the place objet. Review might be suppressed in the repository but wasn't present in the place object")
         self.reviews.remove(review_id)
 
+    # Amenity objects live in their own repository; Place stores their IDs.
     def add_amenity(self, amenity_id):
         if '-' not in amenity_id:
             raise ValueError("this doesn't seem to be a legit amenity")
