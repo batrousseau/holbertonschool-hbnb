@@ -5,6 +5,8 @@ from app import create_app
 from app.services import facade
 
 class TestReviewApi(unittest.TestCase):
+    # The fixture creates a fresh Place and User per test method.
+    # All tests still share the module-level in-memory facade.
     def setUp(self):
         self.app = create_app()
         self.app.config["TESTING"] = True
@@ -61,6 +63,8 @@ class TestReviewApi(unittest.TestCase):
         self.assertEqual(returned_review["user_id"], self.owner.id)
         self.assertEqual(returned_review["place_id"], self.place.id)
 
+    # Verify the update acknowledgement, then GET again to prove the
+    # changed Review is actually visible through the read endpoint.
     def test_put_review(self):
         review_data = {"text": "Review before update", "rating": 2, "user_id": self.owner.id, "place_id": self.place.id}
         response = self.client.post(self.global_path, json=review_data)
@@ -84,12 +88,16 @@ class TestReviewApi(unittest.TestCase):
             self.assertEqual(response.status_code, 404, response.get_data(as_text=True))
 
 
+    # Deleting a Review must remove both the resource and its membership
+    # in the associated Place.reviews list.
     def test_delete_review(self):
         review_data = {"text": "Review to delete", "rating": 1, "user_id": self.owner.id, "place_id": self.place.id}
         response = self.client.post(self.global_path, json=review_data)
         self.assertEqual(response.status_code, 201, response.get_data(as_text=True))
         review_id = response.get_json()["id"]
 
+        # Establish the precondition: the public Place contract exposes
+        # the Review before the DELETE request.
         with self.subTest("Review linked to place before deletion"):
             response = self.client.get(f"/api/v1/places/{self.place.id}")
             self.assertEqual(response.status_code, 200)
@@ -106,10 +114,14 @@ class TestReviewApi(unittest.TestCase):
             response = self.client.get(f"{self.global_path}{review_id}")
             self.assertEqual(response.status_code, 404)
 
+        # Check the model's ID list as well as the HTTP endpoints.
+        # A repository-only delete would leave the old ID in this list.
         with self.subTest("Verify place relationship cleanup"):
             place = facade.get_place(self.place.id)
             self.assertNotIn(review_id, place.reviews)
 
+        # Assert the public enriched contract has no dangling Review entry.
+        # This catches failures that an isolated Review GET would miss.
         with self.subTest("Verify place GET contract"):
             response = self.client.get(f"/api/v1/places/{self.place.id}")
             self.assertEqual(response.status_code, 200, response.get_data(as_text=True))

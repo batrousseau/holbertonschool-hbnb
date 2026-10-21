@@ -5,6 +5,8 @@ from app import create_app
 from app.services import facade
 
 class TestPlaceApi(unittest.TestCase):
+    # Flask's test client calls routes in-process, without a running server.
+    # The facade stays shared, so UUID-based fixtures avoid collisions.
     def setUp(self):
         self.app = create_app()
         self.app.config["TESTING"] = True
@@ -33,6 +35,8 @@ class TestPlaceApi(unittest.TestCase):
             self.assertEqual(response.status_code, 201, response.get_data(as_text=True))
             self.assertEqual(response.get_json()["description"], "")
 
+    # Build Place and Review through HTTP, then verify that the detail
+    # contract expands related IDs into nested owner/amenity/review data.
     def test_get_place(self):
         place_data = {"title": f"Get Place {uuid.uuid4()}", "description": "Place used for GET", "price": 90.0, "latitude": 44.7, "longitude": -0.4, "owner_id": self.owner.id, "amenities": [self.amenity.id]}
         response = self.client.post(self.global_path, json=place_data)
@@ -72,6 +76,8 @@ class TestPlaceApi(unittest.TestCase):
             self.assertEqual(response.status_code, 404)
             self.assertEqual(response.get_json()["error"], "Place not found")
 
+    # The API must return a list even though repository storage is a dict
+    # keyed by UUID. Compare results by ID without depending on ordering.
     def test_get_all_places(self):
         place_data_1 = {"title": f"First Place {uuid.uuid4()}", "description": "First place", "price": 100.0, "latitude": 44.8, "longitude": -0.5, "owner_id": self.owner.id, "amenities": [self.amenity.id]}
         place_data_2 = {"title": f"Second Place {uuid.uuid4()}", "description": "Second place", "price": 150.0, "latitude": 45.0, "longitude": -0.6, "owner_id": self.owner.id, "amenities": [self.amenity.id]}
@@ -98,6 +104,8 @@ class TestPlaceApi(unittest.TestCase):
         self.assertEqual(returned_places[place_id_1]["price"], 100.0)
         self.assertEqual(returned_places[place_id_2]["price"], 150.0)
 
+    # Check the immediate update response AND a later GET.
+    # Amenity associations are additive: existing IDs remain after PUT.
     def test_put_place(self):
         place_data = {"title": f"Put Place {uuid.uuid4()}", "description": "Place used for PUT", "price": 120.0, "latitude": 44.5, "longitude": -0.2, "owner_id": self.owner.id, "amenities": [self.amenity.id]}
         response = self.client.post(self.global_path, json=place_data)
@@ -127,6 +135,8 @@ class TestPlaceApi(unittest.TestCase):
             response = self.client.put(f"{self.global_path}{uuid.uuid4()}", json=updated_data)
             self.assertEqual(response.status_code, 404, response.get_data(as_text=True))
 
+    # Use two Reviews for one Place to detect single-result lookups that
+    # would incorrectly discard other matching reviews.
     def test_get_reviews_by_place(self):
         place_data = {"title": f"Place With Reviews {uuid.uuid4()}", "description": "Place used to test reviews", "price": 100.0, "latitude": 44.8, "longitude": -0.5, "owner_id": self.owner.id, "amenities": [self.amenity.id]}
         response = self.client.post(self.global_path, json=place_data)
@@ -158,6 +168,8 @@ class TestPlaceApi(unittest.TestCase):
             self.assertEqual(response.status_code, 404, response.get_data(as_text=True))
             self.assertEqual(response.get_json()["error"], "Place not found")
 
+    # A missing relationship is represented by an empty JSON list,
+    # not None, an empty dictionary or an absent field.
     def test_get_place_without_reviews(self):
         place_data = {"title": f"Place Without Reviews {uuid.uuid4()}", "description": "No reviews yet", "price": 80.0, "latitude": 44.8, "longitude": -0.5, "owner_id": self.owner.id, "amenities": []}
         response = self.client.post(self.global_path, json=place_data)

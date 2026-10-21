@@ -5,6 +5,7 @@ import unittest
 from app.models.user import User, BaseModel
 
 
+# Exercise BaseModel/User behavior without an API or persistence layer.
 class TestUser(unittest.TestCase):
     def setUp(self):
         self.user = User(first_name="John", last_name="Doe", email="johndoe@hotmail.com")
@@ -58,6 +59,7 @@ class TestUser(unittest.TestCase):
             with self.assertRaises(ValueError):
                 User("John", "incrediblylongnamelikeohmygodethisissolongicantbelieveit", "x@gmail.com")
 
+    # Check wrong type, empty string and missing '@' as separate cases.
     def test_raise_email_error(self):
         with self.subTest("wrong type"):
             with self.assertRaises(TypeError):

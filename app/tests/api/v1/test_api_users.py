@@ -6,12 +6,15 @@ from app import create_app
 
 
 class TestUserApi(unittest.TestCase):
+    # The test client exercises real Flask routes without starting run.py.
     def setUp(self):
         self.app = create_app()
         self.app.config["TESTING"] = True
         self.client = self.app.test_client()
         self.global_path = "/api/v1/users/"
 
+    # Subtests cover creation, duplicate email and invalid request shape,
+    # which fail at different validation stages.
     def test_post_user(self):
         with self.subTest("Correct user"):
             response = self.client.post(path=self.global_path, json={"first_name" : "John", "last_name": "Doe", "email": "johndoe@hotmail.com"})
@@ -38,6 +41,8 @@ class TestUserApi(unittest.TestCase):
             response = self.client.get(path=new_adress)
             assert response.status_code == 404
 
+    # The URL supplies the existing user's ID, while the JSON payload
+    # provides updatable fields; unexpected keys should be rejected.
     def test_put_user(self):
         with self.subTest("Correct user"):
             first_post = self.client.post(path=self.global_path, json={"first_name" : "Jane", "last_name": "Doe", "email": "janedoe2@hotmail.com"})

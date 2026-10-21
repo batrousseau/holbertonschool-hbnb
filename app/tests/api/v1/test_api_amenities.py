@@ -4,12 +4,14 @@ import unittest
 from app import create_app
 
 class TestAmenityApi(unittest.TestCase):
+    # Create an in-process HTTP client for these API-level assertions.
     def setUp(self):
         self.app = create_app()
         self.app.config['TESTING'] = True
         self.client = self.app.test_client()
         self.global_path = "api/v1/amenities/"
 
+    # Exercise both successful creation and an invalid JSON schema.
     def test_post_amenity(self):
         with self.subTest("Correct Amenity"):
             response = self.client.post(path=self.global_path, json={'name' : 'lounge'})
@@ -18,6 +20,8 @@ class TestAmenityApi(unittest.TestCase):
             response = self.client.post(path=self.global_path, json={'what': 'dafuck'})
             assert response.status_code == 400
 
+    # Insert multiple items before querying the collection; the current
+    # API contract uses an ID-keyed dictionary, not a JSON list.
     def test_get_all_amenities(self):
         amenities = ['pool', 'dishwasher', 'bronze tiger', 'plasma tv']
         for element in amenities:

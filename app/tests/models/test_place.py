@@ -12,6 +12,8 @@ class TestPlace(unittest.TestCase):
         self.review_id = str(uuid.uuid4())
         self.valid_data = {"title": "Test Place", "description": "A nice place", "price": 100.0, "latitude": 44.8, "longitude": -0.5, "owner_id": self.owner_id}
 
+    # Merge valid fixture fields with individual overrides so each test
+    # can isolate the specific model behavior under examination.
     def create_place(self, **overrides):
         return Place(**{**self.valid_data, **overrides})
 
@@ -166,6 +168,8 @@ class TestPlace(unittest.TestCase):
         self.assertEqual(place.longitude, -0.6)
         self.assertEqual(place.owner_id, self.owner_id)
 
+    # Place.update adds new relationship IDs without replacing those
+    # that were already present.
     def test_update_place_relations(self):
         amenity_id_2 = str(uuid.uuid4())
         review_id_2 = str(uuid.uuid4())
@@ -207,6 +211,7 @@ class TestPlace(unittest.TestCase):
                 self.assertEqual(place.latitude, self.valid_data["latitude"])
                 self.assertEqual(place.longitude, self.valid_data["longitude"])
 
+    # Ensure different Place objects never share mutable relationship lists.
     def test_independent_relation_lists(self):
         place_1 = self.create_place(title="Place One")
         place_2 = self.create_place(title="Place Two")
@@ -218,6 +223,8 @@ class TestPlace(unittest.TestCase):
         self.assertEqual(place_2.amenities, [])
         self.assertEqual(place_2.reviews, [])
 
+    # The constructor copies input lists; later edits to caller-owned lists
+    # must not unexpectedly change the Place instance.
     def test_relation_lists_are_copied(self):
         amenities = [self.amenity_id]
         reviews = [self.review_id]

@@ -8,6 +8,8 @@ from app.models.place import Place
 from app.models.review import Review
 
 
+# These tests target the Review model directly rather than Flask.
+# ID validation here is about format, not repository existence.
 class TestReview(unittest.TestCase):
 
     def setUp(self):
@@ -60,6 +62,7 @@ class TestReview(unittest.TestCase):
             with self.assertRaises(ValueError):
                 Review("", 5, self.place, self.user.id)
 
+    # Keep type validation separate from checking the valid range 1..5.
     def test_rating_errors(self):
         with self.subTest("Wrong type"):
             with self.assertRaises(TypeError):

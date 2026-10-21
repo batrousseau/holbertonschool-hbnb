@@ -7,6 +7,8 @@ from app.models.user import BaseModel
 from app.models.amenity import Amenity
 
 
+# Model tests are independent of Flask/RESTX request validation.
+# Here we test the constructor and its domain-level constraints.
 class TestAmenity(unittest.TestCase):
 
     def setUp(self):
