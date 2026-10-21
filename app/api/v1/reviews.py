@@ -3,6 +3,8 @@
 from flask_restx import Namespace, Resource, fields
 from app.services import facade
 
+# RESTX schemas describe request fields; Review itself is a domain model.
+# This resource layer translates HTTP requests into facade operations.
 api = Namespace('reviews', description='Review operations')
 
 # Define the review model for input validation and documentation
@@ -21,6 +23,8 @@ class ReviewList(Resource):
     def post(self):
         """Register a new review"""
         review_data = api.payload
+        # The facade creates the Review and links its ID to the owning Place.
+        # This POST response intentionally exposes only selected fields.
         new_review = facade.create_review(review_data)
         return {'id' : new_review.id, 'rating' : new_review.rating, 'user_id' : new_review.user_id, 'place_id' : new_review.place_id}, 201
 
@@ -28,6 +32,8 @@ class ReviewList(Resource):
     def get(self):
         """Retrieve a list of all reviews"""
         all_reviews = facade.get_all_reviews()
+        # GET /reviews/ returns an ID-keyed dictionary here; the different
+        # GET /places/<id>/reviews endpoint returns an array.
         cleaned_reviews: dict = {}
         for reviews in all_reviews:
             cleaned_reviews[reviews.id] = {'text' : reviews.text, 'rating' : reviews.rating, 'user_id' : reviews.user_id, 'place_id' : reviews.place_id}
@@ -55,6 +61,8 @@ class ReviewResource(Resource):
         received_review = facade.get_review(review_id)
         if not received_review:
             return {'error' : 'Review not found'}, 404
+        # Validation is performed by the Review model via the facade.
+        # The current update requires text, rating, user_id and place_id.
         updated_review = facade.update_review(review_id, received_dict)
         return {'message' : 'Successfully Updated', 'id' : updated_review.id, 'text' : updated_review.text}, 200
 
@@ -65,5 +73,7 @@ class ReviewResource(Resource):
         review_to_delete = facade.get_review(review_id)
         if not review_to_delete:
             return {'error' : 'Cannot delete a non existing review'}, 404
+        # Use the facade so both the Review repository and Place.reviews
+        # are cleaned; deleting from review_repo alone would leave a stale ID.
         facade.delete_review(review_id)
         return {'message' : 'Successfully deleted review'}, 200

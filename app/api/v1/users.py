@@ -3,6 +3,8 @@
 from flask_restx import Namespace, Resource, fields
 from app.services import facade
 
+# Flask-RESTX namespaces group routes and their Swagger schema.
+# @api.response documents possible statuses; it does not handle exceptions.
 api = Namespace('users', description='User operations')
 
 # Define the user model for input validation and documentation
@@ -21,9 +23,12 @@ class UserList(Resource):
     
     def post(self):
         """Register a new user"""
+        # api.payload is the parsed JSON dictionary. validate=True in @api.expect
+        # checks the request schema before this method runs.
         user_data = api.payload
 
         # Simulate email uniqueness check (to be replaced by real validation with persistence)
+        # Check email uniqueness in the shared in-memory repository before creation.
         existing_user = facade.get_user_by_email(user_data['email'])
         if existing_user:
             return {'error': 'Email already registered'}, 400
@@ -49,6 +54,8 @@ class UserResource(Resource):
         #we store the information from the payload as a dict and then
         #add the user id from the put method
         received_dict = api.payload
+        # Only these update keys are accepted. The API then adds the ID from
+        # the URL so the facade can identify the stored User to update.
         model_dict = {"first_name" : "x", "last_name": "x","email":"x"}
         for key in received_dict.keys():
             if key not in model_dict:
@@ -60,6 +67,8 @@ class UserResource(Resource):
         if not received_user:
             return {'error' : 'User not found'}, 404
 
+        # Delegate mutation to the facade/model, then explicitly serialize
+        # the selected attributes into the HTTP response.
         updated_user = facade.update_user(received_dict)
         return {'message': 'Successfully Updated', 'id' : updated_user.id, 'first_name': updated_user.first_name, 'last_name' : updated_user.last_name, 'email' : updated_user.email}, 200
 

@@ -1,6 +1,8 @@
 from flask_restx import Namespace, Resource, fields
 from app.services import facade
 
+# This namespace serves /api/v1/amenities; RESTX validates POST and
+# PUT input here because @api.expect uses validate=True.
 api = Namespace('amenities', description='Amenity operations')
 
 # Define the amenity model for input validation and documentation
@@ -17,6 +19,8 @@ class AmenityList(Resource):
     def post(self):
         """Register a new amenity"""
         amenity_data = api.payload
+        # Detect duplicate names before creation. This API returns HTTP 409
+        # for an existing amenity (unlike the user/place duplicate routes).
         existing_amenity = facade.get_amenity_by_name(amenity_data['name'])
         if existing_amenity:
             return {'error' : 'Amenity already exist'}, 409
@@ -28,6 +32,8 @@ class AmenityList(Resource):
     @api.response(200, 'List of amenities retrieved successfully')
     def get(self):
         all_amenities = facade.get_all_amenities()
+        # The collection endpoint returns a dictionary indexed by amenity ID,
+        # not a list like GET /places/.
         cleaned_amenities: dict = {}
         for amenities in all_amenities:
             cleaned_amenities[amenities.id] = {'name' : amenities.name}
@@ -56,6 +62,8 @@ class AmenityResource(Resource):
         if not received_amenity:
             return {'error' : 'Amenity not found'}, 404
 
+        # The URL supplies the target ID; the model validates the new name
+        # when the facade sends the update through its repository.
         updated_amenity = facade.update_amenity(amenity_id, received_dict)
 
         return{'message' : 'Successfully Updated', 'id' : updated_amenity.id, 'name': updated_amenity.name}, 200

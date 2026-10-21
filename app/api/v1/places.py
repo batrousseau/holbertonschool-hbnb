@@ -1,8 +1,13 @@
 from flask_restx import Namespace, Resource, fields
 from app.services import facade
 
+# These resources expose Places through HTTP, not the internal Python
+# objects held in the repositories.
 api = Namespace('places', description='Place operations')
 
+# Nested RESTX field models describe how related data appears in JSON.
+# The POST payload currently passes owner/amenity IDs rather than nested
+# objects; @api.expect here does not enable schema validation.
 # Define the models for related entities
 amenity_model = api.model('PlaceAmenity', {
     'id': fields.String(description='Amenity ID'),
@@ -43,6 +48,8 @@ class PlaceList(Resource):
     @api.response(400, 'Invalid input data')
     def post(self):
         """Register a new place"""
+        # The JSON request becomes a Python dictionary. Normalize an omitted
+        # description before duplicate-title lookup and model construction.
         place_data = api.payload
         if 'description' not in place_data :
             place_data['description'] = ""
@@ -56,6 +63,8 @@ class PlaceList(Resource):
     def get(self):
         """Retrieve a list of all places"""
         all_places = facade.get_all_places()
+        # Collection GET returns a list of scalar Place fields, whereas
+        # GET /places/<id> reconstructs owner, amenities and reviews.
         cleaned_places: list = []
         for places in all_places:
             cleaned_places.append({'id' : places.id, 'title' : places.title, 'description' : places.description, 'price' : places.price, 'latitude' : places.latitude, 'longitude' : places.longitude, 'owner_id' : places.owner_id})
@@ -70,6 +79,8 @@ class PlaceResource(Resource):
         place = facade.get_place(place_id)
         if not place:
             return {'error': 'Place not found'}, 404
+        # Do not serialize the raw Place: its relationships are ID lists.
+        # Build the enriched public JSON contract after confirming it exists.
         contract = rebuild_contract_from_place(place)
         return contract, 200
 
@@ -85,6 +96,8 @@ class PlaceResource(Resource):
         received_place = facade.get_place(place_id)
         if not received_place:
             return {'error' : 'Place not found'}, 404
+        # The Place model currently expects every scalar update field;
+        # this behaves as a full PUT, not as a partial PATCH.
         updated_place = facade.update_place(place_id, received_dict)
         return {'message' : 'Successfully Updated', 'id' : updated_place.id, 'title' : updated_place.title}, 200
 
@@ -98,16 +111,21 @@ class PlaceReviewList(Resource):
         if not existing_place:
             return {'error' : 'Place not found'}, 404
         cleaned_reviews: list = []
+        # Place.reviews stores UUID strings. Resolve each one through the facade
+        # and return a LIST of review dictionaries directly for this route.
         for reviews in existing_place.reviews:
             current_reviews = facade.get_review(reviews)
             current_dict = {'id' : current_reviews.id, 'text' : current_reviews.text, 'rating' : current_reviews.rating, 'user_id' : current_reviews.user_id}
             cleaned_reviews.append(current_dict)
         return (cleaned_reviews)
 
+# Build the detailed GET response from the model and its related data.
+# This keeps presentation logic outside the domain and persistence layers.
 def rebuild_contract_from_place(place):
     amenities_id = place.amenities
     amenities_contract: dict = {'amenities' : []}
 
+    # Resolve every stored Amenity ID and expose only its public id/name.
     for id in amenities_id:
         current_amenity_object = facade.get_amenity(id)
         rebuild_amenity: dict = {'id' : current_amenity_object.id, 'name' : current_amenity_object.name}
@@ -117,6 +135,9 @@ def rebuild_contract_from_place(place):
 
     for id in place.reviews:
         reviews_id_linked_to_place.append(id)
+    # This list was just initialized as [], so it cannot be None.
+    # The else branch also handles the empty list; this is an existing
+    # redundant check, left unchanged in this documentation-only edit.
     if reviews_id_linked_to_place == None:
         reviews_contract: dict = {'reviews' : []}
     else:
@@ -126,11 +147,14 @@ def rebuild_contract_from_place(place):
             rebuild_review: dict = {'id' : current_review_object.id, 'text' : current_review_object.text, 'rating' : current_review_object.rating, 'user_id' : current_review_object.user_id}
             reviews_contract['reviews'].append(rebuild_review)
 
+    # A stored owner_id string becomes an expanded owner dictionary in JSON.
     owner_object = facade.get_user(place.owner_id)
     rebuild_owner = {'id': owner_object.id, 'first_name' : owner_object.first_name, 'last_name' : owner_object.last_name, 'email' : owner_object.email}
 
     rebuild_contract: dict = {'id' : place.id,  'title' : place.title, 'description': place.description, 'price' : place.price,
                               'latitude' : place.latitude, 'longitude' : place.longitude, 'owner_id' : place.owner_id, 
+                              # ** expands both small dictionaries into this top-level result,
+                              # adding 'amenities' and 'reviews' as separate list-valued keys.
                               'owner' : rebuild_owner, **amenities_contract, **reviews_contract}
 
     return rebuild_contract
@@ -138,6 +162,8 @@ def rebuild_contract_from_place(place):
 
 
 
+# This is a manual facade/contract smoke test, not an HTTP route.
+# It executes only when this file is run directly.
 if __name__ == "__main__":
     user_1 = facade.create_user({"first_name": "John", "last_name": "Doe", "email": "john.doe@test.com"})
     user_2 = facade.create_user({"first_name": "Jane", "last_name": "Smith", "email": "jane.smith@test.com"})
