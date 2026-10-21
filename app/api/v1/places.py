@@ -69,8 +69,13 @@ class PlaceResource(Resource):
         """Get place details by ID"""
         place = facade.get_place(place_id)
         if not place:
-            return {'error' : 'Place not found'}, 404
+            return {'error': 'Place not found'}, 404
+
+        print("GET PLACE - IDs des reviews :", place.reviews)
+
         contract = rebuild_contract_from_place(place)
+        print("GET PLACE - Reviews dans le contrat :", contract["reviews"])
+
         return contract, 200
 
     @api.expect(place_model)
@@ -97,27 +102,38 @@ class PlaceReviewList(Resource):
         existing_place = facade.get_place(place_id)
         if not existing_place:
             return {'error' : 'Place not found'}, 404
-        return {existing_place.id : existing_place.reviews}
+        cleaned_reviews: list = []
+        for reviews in existing_place.reviews:
+            current_reviews = facade.get_review(reviews)
+            current_dict = {'id' : current_reviews.id, 'text' : current_reviews.text, 'rating' : current_reviews.rating, 'user_id' : current_reviews.user_id}
+            cleaned_reviews.append(current_dict)
+        return (cleaned_reviews)
 
 def rebuild_contract_from_place(place):
     amenities_id = place.amenities
     amenities_contract: dict = {'amenities' : []}
+
     for id in amenities_id:
         current_amenity_object = facade.get_amenity(id)
         rebuild_amenity: dict = {'id' : current_amenity_object.id, 'name' : current_amenity_object.name}
         amenities_contract['amenities'].append(rebuild_amenity)
+
     reviews_objects = facade.get_reviews_by_place(place.id)
+    print(f"A ce stade j'ai bien un objet qui contient toutes les reviews : {reviews_objects}")
     if reviews_objects == None:
         reviews_contract: dict = {'reviews' : []}
     else:
         reviews_id: list = []
         for objects in reviews_objects:
             reviews_id.append(objects.id)
-        reviews_contract: dict = {'reviews' : []}
+            print(f"J'ajoute la review avec l'id {objects.id} . La liste d'id de reviews vaut maintenant {reviews_id}")
+        reviews_contract: dict = {'reviews' : reviews_id}
+        print(f"J'ai un dictionnaire review contact constitué comme suit : {reviews_contract}")
         for id in reviews_id:
             current_review_object = facade.get_review(id)
             rebuild_review: dict = {'id' : current_review_object.id, 'text' : current_review_object.text, 'rating' : current_review_object.rating, 'user_id' : current_review_object.user_id}
             reviews_contract['reviews'].append(rebuild_review)
+
     owner_object = facade.get_user(place.owner_id)
     rebuild_owner = {'id': owner_object.id, 'first_name' : owner_object.first_name, 'last_name' : owner_object.last_name, 'email' : owner_object.email}
 
@@ -129,51 +145,33 @@ def rebuild_contract_from_place(place):
 
 
 
+
 if __name__ == "__main__":
     user_1 = facade.create_user({"first_name": "John", "last_name": "Doe", "email": "john.doe@test.com"})
     user_2 = facade.create_user({"first_name": "Jane", "last_name": "Smith", "email": "jane.smith@test.com"})
-
     amenity_1 = facade.create_amenity({"name": "Wifi"})
     amenity_2 = facade.create_amenity({"name": "Parking"})
 
-    place_data = {
-        "title": "Maison Test",
-        "description": "Maison utilisée pour tester le contrat API",
-        "price": 120.0,
-        "latitude": 44.8378,
-        "longitude": -0.5792,
-        "owner_id": user_1.id,
-        "amenities": [amenity_1.id, amenity_2.id],
-        "reviews": []
-    }
-
+    place_data = {"title": "Maison Test", "description": "Maison utilisée pour tester le contrat API", "price": 120.0, "latitude": 44.8378, "longitude": -0.5792, "owner_id": user_1.id, "amenities": [amenity_1.id, amenity_2.id]}
     place = facade.create_place(place_data)
 
-    review_1 = facade.create_review({
-        "text": "Très bon séjour",
-        "rating": 5,
-        "user_id": user_2.id,
-        "place_id": place.id
-    })
+    review_1 = facade.create_review({"text": "Très bon séjour", "rating": 5, "user_id": user_2.id, "place_id": place.id})
+    review_2 = facade.create_review({"text": "Maison agréable", "rating": 4, "user_id": user_1.id, "place_id": place.id})
 
-    review_2 = facade.create_review({
-        "text": "Maison agréable",
-        "rating": 4,
-        "user_id": user_1.id,
-        "place_id": place.id
-    })
-
-    # Update the place with the complete data contract
-    updated_place_data = place_data.copy()
-    updated_place_data["reviews"] = [review_1.id, review_2.id]
-
-    facade.update_place(place.id, updated_place_data)
-
-    # Retrieve the updated place
     place = facade.get_place(place.id)
-    print("PLACE:")
-    print(place.__dict__)
-    print()
-    print("REBUILT CONTRACT:")
-    print(rebuild_contract_from_place(place))
+    contract = rebuild_contract_from_place(place)
+
+    print("PLACE — IDs des reviews :", place.reviews)
+    print("REVIEWS ATTENDUES :", [review_1.id, review_2.id])
+    print("CONTRAT RECONSTRUIT :")
+    print(contract)
+
+    assert review_1.id in place.reviews
+    assert review_2.id in place.reviews
+    assert {review["id"] for review in contract["reviews"]} == {review_1.id, review_2.id}
+    assert {amenity["id"] for amenity in contract["amenities"]} == {amenity_1.id, amenity_2.id}
+    assert contract["owner"]["id"] == user_1.id
+
+    print("CONTRAT VALIDÉ")
+
 

@@ -70,6 +70,7 @@ class HBnBFacade:
         self.review_repo.add(review)
         place = self.get_place(review.place_id)
         place.add_review(review.id)
+        self.place_repo.update(place.id, vars(place))
         return review
 
     def get_review(self, review_id):
