@@ -63,8 +63,6 @@ class TestPlaceApi(unittest.TestCase):
             self.assertEqual(amenity["name"], self.amenity.name)
             self.assertIsInstance(data["reviews"], list)
             review = next((item for item in data["reviews"] if item["id"] == review_id), None)
-            print("REVIEW ID ATTENDU :", review_id)
-            print("REVIEWS RETOURNÉES :", data["reviews"])
             self.assertIsNotNone(review)
             self.assertEqual(review["text"], review_data["text"])
             self.assertEqual(review["rating"], review_data["rating"])

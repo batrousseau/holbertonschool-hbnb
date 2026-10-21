@@ -1,173 +1,227 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# HBnB - tests curl des endpoints Places (et création des dépendances)
+# Usage : bash test_curl_places.sh
+#         BASE_URL=http://127.0.0.1:5001 bash test_curl_places.sh
+set -u
 
-BASE_URL="http://127.0.0.1:5000/api/v1"
-BODY_FILE="/tmp/hbnb_place_response.txt"
+BASE_URL="${BASE_URL:-http://127.0.0.1:5000}"
+BASE_URL="${BASE_URL%/}"
+for cmd in curl python3; do
+    command -v "$cmd" >/dev/null 2>&1 || { echo "Commande manquante : $cmd"; exit 1; }
+done
 
-show_response() {
-    local http_code
-    http_code=$(curl -s -o "$BODY_FILE" -w "%{http_code}" "$@")
-    echo "Actual status: $http_code"
-    echo "Actual body:"
-    cat "$BODY_FILE"
-    echo
-    echo
-    LAST_HTTP_CODE="$http_code"
+TMP_BODY="$(mktemp)"
+trap 'rm -f "$TMP_BODY"' EXIT
+PASS=0
+FAIL=0
+BODY=""
+HTTP_CODE=""
+RUN_ID="$(date +%s)-$$"
+TITLE="Maison curl ${RUN_ID}"
+NEW_TITLE="Maison curl modifiee ${RUN_ID}"
+EMPTY_TITLE="Maison sans avis ${RUN_ID}"
+OWNER_EMAIL="owner.${RUN_ID}@test.example"
+REVIEWER_EMAIL="reviewer.${RUN_ID}@test.example"
+WIFI_NAME="Wifi curl ${RUN_ID}"
+PARKING_NAME="Parking curl ${RUN_ID}"
+
+# Comparaison récursive d'un JSON reçu à un JSON attendu.
+# "<UUID>" accepte n'importe quel UUID ; les attributs supplémentaires sont tolérés.
+# {"__contains__": [ ... ]} signifie : liste contenant chacun des éléments indiqués.
+verify_json() {
+    python3 - "$1" "$BODY" <<'PY'
+import json
+import sys
+import uuid
+
+expected = json.loads(sys.argv[1])
+try:
+    actual = json.loads(sys.argv[2])
+except ValueError as exc:
+    print(f"Réponse non JSON : {exc}")
+    sys.exit(1)
+
+def compare(want, got, path="$:"):
+    if want == "<UUID>":
+        try:
+            uuid.UUID(got)
+            return []
+        except (ValueError, AttributeError, TypeError):
+            return [f"{path} : UUID attendu, obtenu {got!r}"]
+    if isinstance(want, dict):
+        if "__contains__" in want:
+            if not isinstance(got, list):
+                return [f"{path} : liste attendue, reçu {type(got).__name__}"]
+            problems = []
+            for item in want["__contains__"]:
+                if not any(not compare(item, candidate, path) for candidate in got):
+                    problems.append(f"{path} : élément attendu absent : {item}")
+            return problems
+        if not isinstance(got, dict):
+            return [f"{path} : dictionnaire attendu, reçu {type(got).__name__}"]
+        errors = []
+        for key, value in want.items():
+            if key not in got:
+                errors.append(f"{path} : clé {key!r} absente")
+            else:
+                errors.extend(compare(value, got[key], f"{path}.{key}"))
+        return errors
+    if isinstance(want, list):
+        if not isinstance(got, list):
+            return [f"{path} : liste attendue, reçu {type(got).__name__}"]
+        if len(want) != len(got):
+            return [f"{path} : {len(want)} éléments attendus, {len(got)} reçus"]
+        errors = []
+        for i, (a, b) in enumerate(zip(want, got)):
+            errors.extend(compare(a, b, f"{path}[{i}]"))
+        return errors
+    return [] if want == got else [f"{path} : attendu {want!r}, reçu {got!r}"]
+
+errors = compare(expected, actual)
+if errors:
+    for error in errors:
+        print(error)
+    sys.exit(1)
+PY
 }
 
-echo "=================================================="
-echo "1. CREATE OWNER"
-echo "=================================================="
-echo "Expected status: 201"
-echo 'Expected body: {"id":"<generated_id>","first_name":"Curl","last_name":"Owner","email":"curl.owner.place@test.com"}'
-echo
-show_response -X POST "$BASE_URL/users/" -H "Content-Type: application/json" -d '{"first_name":"Curl","last_name":"Owner","email":"curl.owner.place@test.com"}'
-OWNER_ID=$(python3 -c 'import json
-try:
-    print(json.load(open("/tmp/hbnb_place_response.txt")).get("id", ""))
-except Exception:
-    print("")')
-echo "Extracted OWNER_ID: $OWNER_ID"
-echo
+# Affiche la réponse ATTENDUE, la réponse REÇUE, puis compare statut et JSON.
+request() {
+    local label="$1" method="$2" endpoint="$3" expected_code="$4" expected_json="$5"
+    local payload="${6:-}"
+    local url="${BASE_URL}${endpoint}"
+    echo
+    echo "================================================================"
+    echo "$label"
+    echo "$method $url"
+    if [[ -n "$payload" ]]; then
+        echo "Payload envoyé :"
+        printf '%s\n' "$payload" | python3 -m json.tool
+        HTTP_CODE=$(curl -sS -X "$method" "$url" -H 'Content-Type: application/json' -d "$payload" -o "$TMP_BODY" -w '%{http_code}') || { echo 'Erreur de connexion curl'; exit 1; }
+    else
+        HTTP_CODE=$(curl -sS -X "$method" "$url" -H 'Content-Type: application/json' -o "$TMP_BODY" -w '%{http_code}') || { echo 'Erreur de connexion curl'; exit 1; }
+    fi
+    BODY="$(cat "$TMP_BODY")"
+    echo "--- ATTENDU ---"
+    echo "HTTP $expected_code"
+    if [[ "$expected_json" == *'"__contains__"'* ]]; then
+        echo '(liste contenant au minimum cet élément ; autres Places possibles)'
+        python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["__contains__"], ensure_ascii=False, indent=2))' "$expected_json"
+    else
+        printf '%s\n' "$expected_json" | python3 -m json.tool
+    fi
+    echo "--- REÇU ---"
+    echo "HTTP $HTTP_CODE"
+    printf '%s\n' "$BODY" | python3 -m json.tool 2>/dev/null || printf '%s\n' "$BODY"
 
-echo "=================================================="
-echo "2. CREATE AMENITY"
-echo "=================================================="
-echo "Expected status: 201"
-echo 'Expected body: {"id":"<generated_id>","name":"Curl Wifi"}'
-echo
-show_response -X POST "$BASE_URL/amenities/" -H "Content-Type: application/json" -d '{"name":"Curl Wifi"}'
-AMENITY_ID=$(python3 -c 'import json
-try:
-    print(json.load(open("/tmp/hbnb_place_response.txt")).get("id", ""))
-except Exception:
-    print("")')
-echo "Extracted AMENITY_ID: $AMENITY_ID"
-echo
+    if [[ "$HTTP_CODE" != "$expected_code" ]]; then
+        echo "✗ ÉCHEC : HTTP attendu $expected_code, reçu $HTTP_CODE"
+        FAIL=$((FAIL + 1))
+    elif verdict=$(verify_json "$expected_json" 2>&1); then
+        echo "✓ OK : statut et contenu JSON conformes"
+        PASS=$((PASS + 1))
+    else
+        echo "✗ ÉCHEC : écart dans le JSON"
+        echo "$verdict"
+        FAIL=$((FAIL + 1))
+    fi
+}
+get_id_or_exit() {
+    local id
+    id="$(printf '%s' "$BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("id", ""))' 2>/dev/null)"
+    if [[ -z "$id" ]]; then
+        echo 'Impossible de récupérer un ID, arrêt pour éviter les erreurs en cascade.' >&2
+        return 1
+    fi
+    printf '%s' "$id"
+}
 
-echo "=================================================="
-echo "3. CREATE PLACE"
-echo "=================================================="
-echo "Expected status: 201"
-echo "Expected body:"
-echo '{
-  "id": "<generated_id>",
-  "title": "Curl Place",
-  "description": "Created with curl",
-  "price": 100.0,
-  "latitude": 44.8378,
-  "longitude": -0.5792,
-  "owner_id": "<OWNER_ID>"
-}'
-echo
-show_response -X POST "$BASE_URL/places/" \
-    -H "Content-Type: application/json" \
-    -d "{\"title\":\"Curl Place\",\"description\":\"Created with curl\",\"price\":100.0,\"latitude\":44.8378,\"longitude\":-0.5792,\"owner_id\":\"$OWNER_ID\",\"amenities\":[\"$AMENITY_ID\"]}"
+echo "Tests curl HBnB / Places — ${BASE_URL}"
+echo "Pré-requis : serveur Flask lancé via python3 run.py"
 
-PLACE_ID=$(python3 -c 'import json
-try:
-    print(json.load(open("/tmp/hbnb_place_response.txt")).get("id", ""))
-except Exception:
-    print("")')
-echo "Extracted PLACE_ID: $PLACE_ID"
-echo
+# Préparation des objets liés
+request '01. POST utilisateur propriétaire' POST '/api/v1/users/' 201 \
+    "{\"id\":\"<UUID>\",\"first_name\":\"John\",\"last_name\":\"Doe\",\"email\":\"$OWNER_EMAIL\"}" \
+    "{\"first_name\":\"John\",\"last_name\":\"Doe\",\"email\":\"$OWNER_EMAIL\"}"
+OWNER_ID="$(get_id_or_exit)" || exit 1
 
-if [ -z "$PLACE_ID" ]; then
-    echo "ERROR: PLACE_ID could not be extracted."
-    echo "Stopping because the following tests depend on a created place."
+request '02. POST utilisateur auteur des avis' POST '/api/v1/users/' 201 \
+    "{\"id\":\"<UUID>\",\"first_name\":\"Jane\",\"last_name\":\"Smith\",\"email\":\"$REVIEWER_EMAIL\"}" \
+    "{\"first_name\":\"Jane\",\"last_name\":\"Smith\",\"email\":\"$REVIEWER_EMAIL\"}"
+REVIEWER_ID="$(get_id_or_exit)" || exit 1
+
+request '03. POST amenity Wifi' POST '/api/v1/amenities/' 201 \
+    "{\"id\":\"<UUID>\",\"name\":\"$WIFI_NAME\"}" "{\"name\":\"$WIFI_NAME\"}"
+WIFI_ID="$(get_id_or_exit)" || exit 1
+
+request '04. POST amenity Parking' POST '/api/v1/amenities/' 201 \
+    "{\"id\":\"<UUID>\",\"name\":\"$PARKING_NAME\"}" "{\"name\":\"$PARKING_NAME\"}"
+PARKING_ID="$(get_id_or_exit)" || exit 1
+
+# Création, lecture et construction du contrat de Place
+PLACE_PAYLOAD="{\"title\":\"$TITLE\",\"description\":\"Test du contrat API\",\"price\":120.0,\"latitude\":44.8378,\"longitude\":-0.5792,\"owner_id\":\"$OWNER_ID\",\"amenities\":[\"$WIFI_ID\",\"$PARKING_ID\"]}"
+request '05. POST /places/ : création de la Place' POST '/api/v1/places/' 201 \
+    "{\"id\":\"<UUID>\",\"title\":\"$TITLE\",\"description\":\"Test du contrat API\",\"price\":120.0,\"latitude\":44.8378,\"longitude\":-0.5792,\"owner_id\":\"$OWNER_ID\"}" \
+    "$PLACE_PAYLOAD"
+PLACE_ID="$(get_id_or_exit)" || exit 1
+
+request '06. GET /places/<id> : avant création des avis' GET "/api/v1/places/$PLACE_ID" 200 \
+    "{\"id\":\"$PLACE_ID\",\"title\":\"$TITLE\",\"owner_id\":\"$OWNER_ID\",\"owner\":{\"id\":\"$OWNER_ID\",\"first_name\":\"John\",\"last_name\":\"Doe\",\"email\":\"$OWNER_EMAIL\"},\"amenities\":[{\"id\":\"$WIFI_ID\",\"name\":\"$WIFI_NAME\"},{\"id\":\"$PARKING_ID\",\"name\":\"$PARKING_NAME\"}],\"reviews\":[]}"
+
+request '07. POST premier avis (la façade doit associer la Place)' POST '/api/v1/reviews/' 201 \
+    "{\"id\":\"<UUID>\",\"rating\":5,\"user_id\":\"$REVIEWER_ID\",\"place_id\":\"$PLACE_ID\"}" \
+    "{\"text\":\"Très bon séjour\",\"rating\":5,\"user_id\":\"$REVIEWER_ID\",\"place_id\":\"$PLACE_ID\"}"
+REVIEW_1_ID="$(get_id_or_exit)" || exit 1
+
+request '08. POST second avis' POST '/api/v1/reviews/' 201 \
+    "{\"id\":\"<UUID>\",\"rating\":4,\"user_id\":\"$REVIEWER_ID\",\"place_id\":\"$PLACE_ID\"}" \
+    "{\"text\":\"Maison agréable\",\"rating\":4,\"user_id\":\"$REVIEWER_ID\",\"place_id\":\"$PLACE_ID\"}"
+REVIEW_2_ID="$(get_id_or_exit)" || exit 1
+
+REVIEWS_EXPECTED="[{\"id\":\"$REVIEW_1_ID\",\"text\":\"Très bon séjour\",\"rating\":5,\"user_id\":\"$REVIEWER_ID\"},{\"id\":\"$REVIEW_2_ID\",\"text\":\"Maison agréable\",\"rating\":4,\"user_id\":\"$REVIEWER_ID\"}]"
+request '09. GET /places/<id> : contrat enrichi avec les deux avis' GET "/api/v1/places/$PLACE_ID" 200 \
+    "{\"id\":\"$PLACE_ID\",\"title\":\"$TITLE\",\"description\":\"Test du contrat API\",\"price\":120.0,\"latitude\":44.8378,\"longitude\":-0.5792,\"owner_id\":\"$OWNER_ID\",\"owner\":{\"id\":\"$OWNER_ID\",\"first_name\":\"John\",\"last_name\":\"Doe\",\"email\":\"$OWNER_EMAIL\"},\"amenities\":[{\"id\":\"$WIFI_ID\",\"name\":\"$WIFI_NAME\"},{\"id\":\"$PARKING_ID\",\"name\":\"$PARKING_NAME\"}],\"reviews\":$REVIEWS_EXPECTED}"
+
+request '10. GET /places/<id>/reviews : liste (pas dictionnaire)' GET "/api/v1/places/$PLACE_ID/reviews" 200 \
+    "$REVIEWS_EXPECTED"
+
+request '11. GET /places/ : liste contenant la Place' GET '/api/v1/places/' 200 \
+    "{\"__contains__\":[{\"id\":\"$PLACE_ID\",\"title\":\"$TITLE\",\"owner_id\":\"$OWNER_ID\"}]}"
+
+# Mise à jour des champs de la Place : les avis restent associés sans réécriture.
+UPDATED_PAYLOAD="{\"title\":\"$NEW_TITLE\",\"description\":\"Description mise à jour\",\"price\":180.0,\"latitude\":45.0,\"longitude\":-0.6,\"owner_id\":\"$OWNER_ID\"}"
+request '12. PUT /places/<id> : modification des champs simples' PUT "/api/v1/places/$PLACE_ID" 200 \
+    "{\"message\":\"Successfully Updated\",\"id\":\"$PLACE_ID\",\"title\":\"$NEW_TITLE\"}" \
+    "$UPDATED_PAYLOAD"
+
+request '13. GET après PUT : avis et amenities conservés' GET "/api/v1/places/$PLACE_ID" 200 \
+    "{\"id\":\"$PLACE_ID\",\"title\":\"$NEW_TITLE\",\"description\":\"Description mise à jour\",\"price\":180.0,\"latitude\":45.0,\"longitude\":-0.6,\"owner_id\":\"$OWNER_ID\",\"amenities\":[{\"id\":\"$WIFI_ID\"},{\"id\":\"$PARKING_ID\"}],\"reviews\":$REVIEWS_EXPECTED}"
+
+request '14. POST titre déjà utilisé : erreur métier' POST '/api/v1/places/' 400 \
+    '{"error":"place already created"}' "$UPDATED_PAYLOAD"
+
+UNKNOWN_ID='00000000-0000-4000-8000-000000000000'
+request '15. GET /places/<id> inconnu' GET "/api/v1/places/$UNKNOWN_ID" 404 \
+    '{"error":"Place not found"}'
+
+request '16. GET /places/<id>/reviews inconnu' GET "/api/v1/places/$UNKNOWN_ID/reviews" 404 \
+    '{"error":"Place not found"}'
+
+request '17. PUT /places/<id> inconnu' PUT "/api/v1/places/$UNKNOWN_ID" 404 \
+    '{"error":"Place not found"}' "$UPDATED_PAYLOAD"
+
+# Une autre Place, sans description ni avis, vérifie le contrat vide.
+request '18. POST /places/ sans description' POST '/api/v1/places/' 201 \
+    "{\"id\":\"<UUID>\",\"title\":\"$EMPTY_TITLE\",\"description\":\"\",\"price\":80.0,\"owner_id\":\"$OWNER_ID\"}" \
+    "{\"title\":\"$EMPTY_TITLE\",\"price\":80.0,\"latitude\":44.8,\"longitude\":-0.5,\"owner_id\":\"$OWNER_ID\"}"
+EMPTY_PLACE_ID="$(get_id_or_exit)" || exit 1
+
+request '19. GET Place sans avis ni amenities' GET "/api/v1/places/$EMPTY_PLACE_ID" 200 \
+    "{\"id\":\"$EMPTY_PLACE_ID\",\"description\":\"\",\"owner\":{\"id\":\"$OWNER_ID\"},\"amenities\":[],\"reviews\":[]}"
+
+echo
+echo "================================================================"
+echo "BILAN : $PASS vérifications OK / $FAIL échec(s)"
+if [[ "$FAIL" -gt 0 ]]; then
     exit 1
 fi
-
-echo "=================================================="
-echo "4. GET PLACE BY ID"
-echo "=================================================="
-echo "Expected status: 200"
-echo "Expected body:"
-echo "{
-  \"id\": \"$PLACE_ID\",
-  \"title\": \"Curl Place\",
-  \"description\": \"Created with curl\",
-  \"price\": 100.0,
-  \"latitude\": 44.8378,
-  \"longitude\": -0.5792,
-  \"owner_id\": \"$OWNER_ID\"
-}"
-echo
-show_response -X GET "$BASE_URL/places/$PLACE_ID"
-
-echo "=================================================="
-echo "5. GET ALL PLACES"
-echo "=================================================="
-echo "Expected status: 200"
-echo "Expected result: response must contain PLACE_ID = $PLACE_ID"
-echo "Expected place data should contain at least:"
-echo '{
-  "title": "Curl Place",
-  "description": "Created with curl",
-  "price": 100.0
-}'
-echo
-show_response -X GET "$BASE_URL/places/"
-
-echo "=================================================="
-echo "6. UPDATE PLACE"
-echo "=================================================="
-echo "Expected status: 200"
-echo "Expected body:"
-echo "{
-  \"message\": \"Successfully Updated\",
-  \"id\": \"$PLACE_ID\",
-  \"title\": \"Updated Curl Place\"
-}"
-echo
-show_response -X PUT "$BASE_URL/places/$PLACE_ID" \
-    -H "Content-Type: application/json" \
-    -d "{\"title\":\"Updated Curl Place\",\"description\":\"Updated with curl\",\"price\":200.0,\"latitude\":45.0,\"longitude\":-0.6,\"owner_id\":\"$OWNER_ID\",\"amenities\":[\"$AMENITY_ID\"]}"
-
-echo "=================================================="
-echo "7. GET PLACE AFTER UPDATE"
-echo "=================================================="
-echo "Expected status: 200"
-echo "Expected body:"
-echo "{
-  \"id\": \"$PLACE_ID\",
-  \"title\": \"Updated Curl Place\",
-  \"description\": \"Updated with curl\",
-  \"price\": 200.0,
-  \"latitude\": 45.0,
-  \"longitude\": -0.6,
-  \"owner_id\": \"$OWNER_ID\"
-}"
-echo
-show_response -X GET "$BASE_URL/places/$PLACE_ID"
-
-echo "=================================================="
-echo "8. GET UNKNOWN PLACE"
-echo "=================================================="
-echo "Expected status: 404"
-echo 'Expected body: {"error":"Place not found"}'
-echo
-show_response -X GET "$BASE_URL/places/00000000-0000-0000-0000-000000000000"
-
-echo "=================================================="
-echo "9. UPDATE UNKNOWN PLACE"
-echo "=================================================="
-echo "Expected status: 404"
-echo 'Expected body: {"error":"Place not found"}'
-echo
-show_response -X PUT "$BASE_URL/places/00000000-0000-0000-0000-000000000000" \
-    -H "Content-Type: application/json" \
-    -d "{\"title\":\"Unknown Place\",\"description\":\"Should fail\",\"price\":100.0,\"latitude\":44.0,\"longitude\":-0.5,\"owner_id\":\"$OWNER_ID\",\"amenities\":[\"$AMENITY_ID\"]}"
-
-echo "=================================================="
-echo "10. CREATE PLACE WITHOUT DESCRIPTION"
-echo "=================================================="
-echo "Expected status: 201"
-echo "Expected behavior: description should become an empty string if your API handles optional description that way."
-echo
-show_response -X POST "$BASE_URL/places/" \
-    -H "Content-Type: application/json" \
-    -d "{\"title\":\"Curl Place Without Description\",\"price\":80.0,\"latitude\":44.8,\"longitude\":-0.5,\"owner_id\":\"$OWNER_ID\",\"amenities\":[\"$AMENITY_ID\"]}"
-
-echo "=================================================="
-echo "END OF PLACE API TESTS"
-echo "=================================================="

@@ -70,12 +70,7 @@ class PlaceResource(Resource):
         place = facade.get_place(place_id)
         if not place:
             return {'error': 'Place not found'}, 404
-
-        print("GET PLACE - IDs des reviews :", place.reviews)
-
         contract = rebuild_contract_from_place(place)
-        print("GET PLACE - Reviews dans le contrat :", contract["reviews"])
-
         return contract, 200
 
     @api.expect(place_model)
@@ -117,7 +112,6 @@ def rebuild_contract_from_place(place):
         current_amenity_object = facade.get_amenity(id)
         rebuild_amenity: dict = {'id' : current_amenity_object.id, 'name' : current_amenity_object.name}
         amenities_contract['amenities'].append(rebuild_amenity)
-
 
     reviews_id_linked_to_place: list = []
 

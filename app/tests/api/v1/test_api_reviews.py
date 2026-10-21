@@ -83,22 +83,48 @@ class TestReviewApi(unittest.TestCase):
             response = self.client.put(f"{self.global_path}{uuid.uuid4()}", json=updated_data)
             self.assertEqual(response.status_code, 404, response.get_data(as_text=True))
 
-    def test_delete_review(self):
-        review_data = {"text": "Review to delete", "rating": 1, "user_id": self.owner.id, "place_id": self.place.id}
-        response = self.client.post(self.global_path, json=review_data)
-        self.assertEqual(response.status_code, 201, response.get_data(as_text=True))
-        review_id = response.get_json()["id"]
-        with self.subTest("Existing review"):
-            response = self.client.delete(f"{self.global_path}{review_id}")
-            self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
-            data = response.get_json()
-            self.assertEqual(data["message"], "Successfully deleted review")
-        with self.subTest("Verify deletion"):
-            response = self.client.get(f"{self.global_path}{review_id}")
-            self.assertEqual(response.status_code, 404)
-        with self.subTest("Unknown review"):
-            response = self.client.delete(f"{self.global_path}{uuid.uuid4()}")
-            self.assertEqual(response.status_code, 404, response.get_data(as_text=True))
+
+def test_delete_review(self):
+    review_data = {"text": "Review to delete", "rating": 1, "user_id": self.owner.id, "place_id": self.place.id}
+    response = self.client.post(self.global_path, json=review_data)
+    self.assertEqual(response.status_code, 201, response.get_data(as_text=True))
+    review_id = response.get_json()["id"]
+
+    with self.subTest("Review linked to place before deletion"):
+        response = self.client.get(f"/api/v1/places/{self.place.id}")
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertIn(review_id, [review["id"] for review in data["reviews"]])
+
+    with self.subTest("Existing review"):
+        response = self.client.delete(f"{self.global_path}{review_id}")
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        data = response.get_json()
+        self.assertEqual(data["message"], "Successfully deleted review")
+
+    with self.subTest("Verify deletion"):
+        response = self.client.get(f"{self.global_path}{review_id}")
+        self.assertEqual(response.status_code, 404)
+
+    with self.subTest("Verify place relationship cleanup"):
+        place = facade.get_place(self.place.id)
+        self.assertNotIn(review_id, place.reviews)
+
+    with self.subTest("Verify place GET contract"):
+        response = self.client.get(f"/api/v1/places/{self.place.id}")
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        data = response.get_json()
+        self.assertEqual(data["reviews"], [])
+
+    with self.subTest("Verify reviews by place"):
+        response = self.client.get(f"/api/v1/places/{self.place.id}/reviews")
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        self.assertEqual(response.get_json(), [])
+
+    with self.subTest("Unknown review"):
+        response = self.client.delete(f"{self.global_path}{uuid.uuid4()}")
+        self.assertEqual(response.status_code, 404, response.get_data(as_text=True))
+
 
 if __name__ == "__main__":
     unittest.main()

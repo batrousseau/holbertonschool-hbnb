@@ -68,9 +68,16 @@ class Place(BaseModel):
 
     def add_review(self, review_id):
         if not '-' in review_id:
-            raise ValueError("the review must be a legit Review")
+            raise ValueError("the review must be a legit uuid")
         self.reviews.append(review_id)
         super().save()
+
+    def remove_review(self, review_id):
+        if not '-' in review_id:
+            raise ValueError("the review must be a legit uuid")
+        if review_id not in self.reviews:
+            raise ValueError("Can't delete the review stored in the place objet. Review might be suppressed in the repository but wasn't present in the place object")
+        self.reviews.remove(review_id)
 
     def add_amenity(self, amenity_id):
         if '-' not in amenity_id:
