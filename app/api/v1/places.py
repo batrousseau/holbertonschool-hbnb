@@ -118,18 +118,16 @@ def rebuild_contract_from_place(place):
         rebuild_amenity: dict = {'id' : current_amenity_object.id, 'name' : current_amenity_object.name}
         amenities_contract['amenities'].append(rebuild_amenity)
 
-    reviews_objects = facade.get_reviews_by_place(place.id)
-    print(f"A ce stade j'ai bien un objet qui contient toutes les reviews : {reviews_objects}")
-    if reviews_objects == None:
+
+    reviews_id_linked_to_place: list = []
+
+    for id in place.reviews:
+        reviews_id_linked_to_place.append(id)
+    if reviews_id_linked_to_place == None:
         reviews_contract: dict = {'reviews' : []}
     else:
-        reviews_id: list = []
-        for objects in reviews_objects:
-            reviews_id.append(objects.id)
-            print(f"J'ajoute la review avec l'id {objects.id} . La liste d'id de reviews vaut maintenant {reviews_id}")
-        reviews_contract: dict = {'reviews' : reviews_id}
-        print(f"J'ai un dictionnaire review contact constitué comme suit : {reviews_contract}")
-        for id in reviews_id:
+        reviews_contract: dict = {'reviews' : []}
+        for id in reviews_id_linked_to_place:
             current_review_object = facade.get_review(id)
             rebuild_review: dict = {'id' : current_review_object.id, 'text' : current_review_object.text, 'rating' : current_review_object.rating, 'user_id' : current_review_object.user_id}
             reviews_contract['reviews'].append(rebuild_review)
